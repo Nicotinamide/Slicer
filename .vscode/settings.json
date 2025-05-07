@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "*.dbclient-js": "javascript",
+        "*.py": "python",
+        "*.tex": "latex",
+        "vector": "cpp"
+    }
+}

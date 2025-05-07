@@ -1,0 +1,10 @@
+^E:\CODESE\SLICER\BUILD\CMAKEFILES\C769D63E2D9580180052DDBBF789596C\GENERATE.STAMP.RULE
+setlocal
+"D:\Program Files (x86)\cmake\bin\cmake.exe" -SE:/CodesE/Slicer -BE:/CodesE/Slicer/build --check-stamp-list CMakeFiles/generate.stamp.list --vs-solution-file E:/CodesE/Slicer/build/MySlicerProject.sln
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd
