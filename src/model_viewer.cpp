@@ -48,6 +48,9 @@ ModelViewer::ModelViewer(wxWindow* parent, wxWindowID id)
         // GLEW 初始化失败
         std::cerr << "GLEW 初始化错误: " << glewGetErrorString(err) << std::endl;
     }
+
+    // 初始化 SurfaceAnalyzer
+    m_surfaceAnalyzer = SurfaceAnalyzer(); // 添加此行
 }
 
 ModelViewer::~ModelViewer()
@@ -62,6 +65,7 @@ ModelViewer::~ModelViewer()
     delete m_context;
 }
 
+// Modify loadModel to store the scene
 bool ModelViewer::loadModel(const aiScene* scene)
 {
     // 清理现有数据
@@ -80,6 +84,8 @@ bool ModelViewer::loadModel(const aiScene* scene)
         return false;
     }
 
+    m_scene = scene;  // Store reference to the scene
+
     // 递归处理场景节点，传入初始的单位变换矩阵
     processAiNode(scene->mRootNode, scene, glm::mat4(1.0f));
 
@@ -96,6 +102,10 @@ bool ModelViewer::loadModel(const aiScene* scene)
     // 重置旋转
     m_rotationX = 0.0f;
     m_rotationY = 0.0f;
+
+    // 重置平移
+    m_translateX = 0.0f;
+    m_translateY = 0.0f;
 
     Refresh();              // 请求重绘
 
@@ -147,7 +157,18 @@ void ModelViewer::processAiMesh(const aiMesh* mesh, const aiScene* scene, const 
             modelMesh.vertices.push_back(0.0f);
             modelMesh.vertices.push_back(1.0f); // 默认向上(Z)或向前，取决于坐标系
         }
-        // 你可能还需要处理纹理坐标 (mesh->mTextureCoords[0]) 等其他顶点属性
+
+        // 颜色 (如果有)
+        if (mesh->HasVertexColors(0)) {
+            modelMesh.vertices.push_back(mesh->mColors[0][i].r);
+            modelMesh.vertices.push_back(mesh->mColors[0][i].g);
+            modelMesh.vertices.push_back(mesh->mColors[0][i].b);
+        } else {
+            // 默认白色
+            modelMesh.vertices.push_back(0.8f);
+            modelMesh.vertices.push_back(0.8f);
+            modelMesh.vertices.push_back(0.8f);
+        }
     }
 
     // 收集索引数据
@@ -203,79 +224,23 @@ void ModelViewer::setupGL()
                     mesh.indices.data(), GL_STATIC_DRAW);
                     
         // 设置顶点属性
-        // 位置属性
-        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+        // 位置属性 (3 floats)
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), (void*)0);
         glEnableVertexAttribArray(0);
-        // 法线属性
-        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), 
-                             (void*)(3 * sizeof(float)));
+        // 法线属性 (3 floats)
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float), 
+                            (void*)(3 * sizeof(float)));
         glEnableVertexAttribArray(1);
+        // 颜色属性 (3 floats)
+        glVertexAttribPointer(2, 3, GL_FLOAT, GL_FALSE, 9 * sizeof(float),
+                            (void*)(6 * sizeof(float)));
+        glEnableVertexAttribArray(2);
         
         glBindVertexArray(0);
     }
 }
 
-void ModelViewer::OnPaint(wxPaintEvent& event)
-{
-    // 必需的
-    wxPaintDC dc(this);
-    
-    // 设置当前 GL 上下文
-    SetCurrent(*m_context);
-    
-    // 渲染场景
-    render();
-    
-    // 交换缓冲区
-    SwapBuffers();
-}
-
-void ModelViewer::OnSize(wxSizeEvent& event)
-{
-    // 必需的
-    wxSize size = event.GetSize();
-    
-    if (m_context) {  // 修改此行，使用 m_context 而不是 GetContext()
-        SetCurrent(*m_context);
-        glViewport(0, 0, size.x, size.y);
-    }
-    event.Skip();
-}
-
-void ModelViewer::OnMouseEvent(wxMouseEvent& event)
-{
-    static wxPoint lastPos;
-    
-    if (event.LeftDown()) {
-        lastPos = event.GetPosition();
-    }
-    else if (event.Dragging() && event.LeftIsDown()) {
-        wxPoint pos = event.GetPosition();
-        int dx = pos.x - lastPos.x;
-        int dy = pos.y - lastPos.y;
-        
-        m_rotationY += dx * 0.5f;
-        m_rotationX += dy * 0.5f;
-        
-        lastPos = pos;
-        Refresh();
-    }
-    else if (event.GetWheelRotation() != 0) {
-        // 调整缩放灵敏度，使用更明显的变化
-        m_scale += (event.GetWheelRotation() > 0) ? 0.1f : -0.1f;
-        if (m_scale < 0.1f) m_scale = 0.1f;
-        
-        // 输出调试信息
-        std::cout << "滚轮旋转: " << event.GetWheelRotation() 
-                  << ", 新缩放值: " << m_scale << std::endl;
-        
-        // 确保视图更新
-        Refresh();
-    }
-    
-    event.Skip();
-}
-
+// Modify render method to handle top surface display
 void ModelViewer::render()
 {
     // 设置背景色
@@ -297,6 +262,11 @@ void ModelViewer::render()
     glMatrixMode(GL_MODELVIEW);
     glLoadIdentity();
     glTranslatef(0.0f, 0.0f, -5.0f);
+    
+    // 应用平移变换
+    glTranslatef(m_translateX, m_translateY, 0.0f);
+    
+    // 然后应用旋转和缩放
     glRotatef(m_rotationX, 1.0f, 0.0f, 0.0f);
     glRotatef(m_rotationY, 0.0f, 1.0f, 0.0f);
     glScalef(m_scale, m_scale, m_scale);
@@ -341,30 +311,193 @@ void ModelViewer::render()
     // 禁用面剔除，显示所有面
     glDisable(GL_CULL_FACE);
     
-    // 绘制所有网格
-    for (auto& mesh : m_meshes) {
-        glBindVertexArray(mesh.vao);
+    // 如果仅显示顶面且有顶面可显示
+    if (m_showTopSurfaceOnly && m_topSurfaceMesh) {
+        // 创建临时 ModelMesh 来渲染顶面
+        ModelMesh topMesh;
+        topMesh.worldTransform = glm::mat4(1.0f); // 使用单位矩阵作为变换
+
+        // 收集顶点数据
+        for (unsigned int i = 0; i < m_topSurfaceMesh->mNumVertices; i++) {
+            // 位置
+            topMesh.vertices.push_back(m_topSurfaceMesh->mVertices[i].x);
+            topMesh.vertices.push_back(m_topSurfaceMesh->mVertices[i].y);
+            topMesh.vertices.push_back(m_topSurfaceMesh->mVertices[i].z);
+
+            // 法线
+            if (m_topSurfaceMesh->HasNormals()) {
+                topMesh.vertices.push_back(m_topSurfaceMesh->mNormals[i].x);
+                topMesh.vertices.push_back(m_topSurfaceMesh->mNormals[i].y);
+                topMesh.vertices.push_back(m_topSurfaceMesh->mNormals[i].z);
+            } else {
+                topMesh.vertices.push_back(0.0f);
+                topMesh.vertices.push_back(0.0f);
+                topMesh.vertices.push_back(1.0f);
+            }
+        }
+
+        // 收集索引数据
+        for (unsigned int i = 0; i < m_topSurfaceMesh->mNumFaces; i++) {
+            aiFace face = m_topSurfaceMesh->mFaces[i];
+            if (face.mNumIndices == 3) {
+                topMesh.indices.push_back(face.mIndices[0]);
+                topMesh.indices.push_back(face.mIndices[1]);
+                topMesh.indices.push_back(face.mIndices[2]);
+            }
+        }
+
+        topMesh.numIndices = topMesh.indices.size();
+
+        // 设置 OpenGL 缓冲区
+        glGenVertexArrays(1, &topMesh.vao);
+        glBindVertexArray(topMesh.vao);
+
+        glGenBuffers(1, &topMesh.vbo);
+        glBindBuffer(GL_ARRAY_BUFFER, topMesh.vbo);
+        glBufferData(GL_ARRAY_BUFFER, topMesh.vertices.size() * sizeof(float),
+                    topMesh.vertices.data(), GL_STATIC_DRAW);
+
+        glGenBuffers(1, &topMesh.ebo);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, topMesh.ebo);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, topMesh.indices.size() * sizeof(unsigned int),
+                    topMesh.indices.data(), GL_STATIC_DRAW);
+
+        // 设置顶点属性
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float), (void*)0);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6 * sizeof(float),
+                             (void*)(3 * sizeof(float)));
+        glEnableVertexAttribArray(1);
+
+        // 渲染顶面
+        glBindVertexArray(topMesh.vao);
         
         // 绘制填充面
         glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-        glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, topMesh.numIndices, GL_UNSIGNED_INT, 0);
         
-        // 绘制线框 (可选)
+        // 绘制线框
         glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-        glDisable(GL_LIGHTING);  // 禁用光照以便线框清晰可见
-        glColor3f(0.0f, 0.0f, 0.0f);  // 黑色线框
+        glDisable(GL_LIGHTING);
+        glColor3f(0.0f, 0.0f, 0.0f);
         glLineWidth(1.0f);
         glEnable(GL_POLYGON_OFFSET_LINE);
         glPolygonOffset(-1.0f, -1.0f);
-        glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, 0);
+        glDrawElements(GL_TRIANGLES, topMesh.numIndices, GL_UNSIGNED_INT, 0);
         glDisable(GL_POLYGON_OFFSET_LINE);
-        glEnable(GL_LIGHTING);  // 重新启用光照
+        glEnable(GL_LIGHTING);
+
+        // 清理临时资源
+        glDeleteBuffers(1, &topMesh.vbo);
+        glDeleteBuffers(1, &topMesh.ebo);
+        glDeleteVertexArrays(1, &topMesh.vao);
+    }
+    else {
+        // 正常渲染ModelMesh对象
+        for (auto& mesh : m_meshes) {
+            glBindVertexArray(mesh.vao);
+            
+            // 绘制填充面 - 修正调用添加第4个参数(偏移量)
+            glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+            glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, 0);
+            
+            // 绘制线框 - 修正调用添加第4个参数
+            glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+            glDisable(GL_LIGHTING);
+            glColor3f(0.0f, 0.0f, 0.0f);
+            glLineWidth(1.0f);
+            glEnable(GL_POLYGON_OFFSET_LINE);
+            glPolygonOffset(-1.0f, -1.0f);
+            glDrawElements(GL_TRIANGLES, mesh.numIndices, GL_UNSIGNED_INT, 0);
+            glDisable(GL_POLYGON_OFFSET_LINE);
+            glEnable(GL_LIGHTING);
+        }
     }
     
     // 禁用光源和光照
     glDisable(GL_LIGHT1);
     glDisable(GL_LIGHT0);
     glDisable(GL_LIGHTING);
+}
+
+void ModelViewer::OnPaint(wxPaintEvent& event)
+{
+    // 必需的
+    wxPaintDC dc(this);
+    
+    // 设置当前 GL 上下文
+    SetCurrent(*m_context);
+    
+    // 渲染场景
+    render();
+    
+    // 交换缓冲区
+    SwapBuffers();
+}
+
+void ModelViewer::OnSize(wxSizeEvent& event)
+{
+    // 必需的
+    wxSize size = event.GetSize();
+    
+    if (m_context) {  // 修改此行，使用 m_context 而不是 GetContext()
+        SetCurrent(*m_context);
+        glViewport(0, 0, size.x, size.y);
+    }
+    event.Skip();
+}
+
+void ModelViewer::OnMouseEvent(wxMouseEvent& event)
+{
+    static wxPoint lastPos;
+    
+    if (event.LeftDown() || event.RightDown()) {
+        lastPos = event.GetPosition();
+    }
+    else if (event.Dragging() && event.LeftIsDown()) {
+        wxPoint pos = event.GetPosition();
+        int dx = pos.x - lastPos.x;
+        int dy = pos.y - lastPos.y;
+        
+        m_rotationY += dx * 0.5f;
+        m_rotationX += dy * 0.5f;
+        
+        lastPos = pos;
+        Refresh();
+    }
+    else if (event.Dragging() && event.RightIsDown()) {
+        // 新增：右键拖动实现平移
+        wxPoint pos = event.GetPosition();
+        int dx = pos.x - lastPos.x;
+        int dy = pos.y - lastPos.y;
+        
+        // 转换屏幕坐标变化为模型空间平移
+        // 缩放因子用于保持相对视图大小的一致移动速度
+        float translateScale = 0.0001f / m_scale;
+        m_translateX += dx * translateScale;
+        m_translateY -= dy * translateScale; // Y轴反转
+                
+        lastPos = pos;
+        Refresh();
+    }
+    else if (event.GetWheelRotation() != 0) {
+        // 增加调试输出，查看滚轮事件是否正确触发
+        // std::cout << "滚轮事件触发，旋转值: " << event.GetWheelRotation() << std::endl;
+        
+        // 调整缩放步长 - 根据当前缩放比例动态调整
+        float scaleFactor = (event.GetWheelRotation() > 0) ? 1.2f : 0.8f;
+        m_scale *= scaleFactor;  // 乘法缩放而非加法缩放
+        
+        // 限制缩放范围
+        if (m_scale < 0.001f) m_scale = 0.001f;
+        if (m_scale > 1.0f) m_scale = 1.0f;
+        
+        // std::cout << "新缩放值: " << m_scale << std::endl;
+        Refresh();
+    }
+    
+    
+    event.Skip();
 }
 
 float ModelViewer::calculateModelRadius()
@@ -385,4 +518,136 @@ float ModelViewer::calculateModelRadius()
     }
     
     return maxDist > 0.0f ? maxDist : 1.0f;
+}
+
+// Add implementation for new methods
+
+void ModelViewer::analyzeTopSurface() {
+    if (!m_scene) {
+        std::cerr << "没有已加载的模型！" << std::endl;
+        return;
+    }
+    
+    // 添加错误处理
+    try {
+        std::cout << "正在分析表面..." << std::endl;
+        
+        // 使用更安全的方式调用函数
+        // 步骤1：将模型分解为单独着色的面
+        std::vector<aiMesh*> separatedFaces;
+        try {
+            separatedFaces = m_surfaceAnalyzer.separateFaces(m_scene);
+        } catch (const std::exception& e) {
+            std::cerr << "分解面时出错: " << e.what() << std::endl;
+            return;
+        }
+        
+        if (separatedFaces.empty()) {
+            std::cerr << "无法分解模型面！" << std::endl;
+            return;
+        }
+        
+        std::cout << "模型已分解为 " << separatedFaces.size() << " 个面" << std::endl;
+        
+        // 步骤2：从分离的面中提取顶面
+        try {
+            m_topSurfaceMesh = m_surfaceAnalyzer.extractTopSurfaceFromFaces(separatedFaces);
+        } catch (const std::exception& e) {
+            std::cerr << "提取顶面时出错: " << e.what() << std::endl;
+            // 确保清理资源
+            m_surfaceAnalyzer.cleanupSeparatedFaces(separatedFaces);
+            return;
+        }
+        
+        if (m_topSurfaceMesh) {
+            std::cout << "顶面识别成功，包含 " << m_topSurfaceMesh->mNumFaces << " 个三角形。" << std::endl;
+            
+            // 自动切换到顶面显示模式
+            m_showTopSurfaceOnly = true;
+            
+            // 刷新显示
+            Refresh();
+        } else {
+            std::cerr << "无法识别顶面！" << std::endl;
+        }
+        
+        // 清理分离的面（避免内存泄漏）
+        m_surfaceAnalyzer.cleanupSeparatedFaces(separatedFaces);
+        
+    } catch (const std::exception& e) {
+        std::cerr << "分析顶面时发生异常: " << e.what() << std::endl;
+    } catch (...) {
+        std::cerr << "分析顶面时发生未知异常!" << std::endl;
+    }
+}
+
+void ModelViewer::showTopSurfaceOnly(bool show) {
+    m_showTopSurfaceOnly = show;
+    Refresh();
+}
+
+bool ModelViewer::exportTopSurface(const std::string& filename) {
+    if (m_surfaceAnalyzer.exportTopSurface(filename)) {
+        std::cout << "Top surface exported to " << filename << std::endl;
+        return true;
+    } else {
+        std::cerr << "Failed to export top surface." << std::endl;
+        return false;
+    }
+}
+
+void ModelViewer::analyzeSurfaces(float angleThreshold) {
+    if (!m_scene) {
+        std::cerr << "没有已加载的模型！" << std::endl;
+        return;
+    }
+    
+    // 方法1：基于法线聚类的表面分割
+    std::vector<std::vector<unsigned int>> surfaces = 
+        m_surfaceAnalyzer.extractSurfaces(m_scene, angleThreshold);
+    
+    if (surfaces.empty()) {
+        std::cerr << "无法提取表面！" << std::endl;
+        return;
+    }
+    
+    // 创建彩色表面网格
+    aiMesh* coloredMesh = m_surfaceAnalyzer.createColoredSurfaceMesh(m_scene, surfaces);
+    
+    // TODO: 显示彩色表面网格
+    // 这里需要将coloredMesh转换为您的渲染系统可用的格式
+    
+    // 保存当前网格以便清理
+    m_coloredSurfaceMesh = coloredMesh;
+    
+    // 刷新显示
+    Refresh();
+}
+
+void ModelViewer::analyzeConnectedSurfaces(float angleThreshold) {
+    if (!m_scene) {
+        std::cerr << "没有已加载的模型！" << std::endl;
+        return;
+    }
+    
+    // 方法2：基于区域生长的表面分割（考虑连通性）
+    std::vector<std::vector<unsigned int>> surfaces = 
+        m_surfaceAnalyzer.extractSurfacesByRegionGrowing(m_scene, angleThreshold);
+    
+    if (surfaces.empty()) {
+        std::cerr << "无法提取连通表面！" << std::endl;
+        return;
+    }
+    
+    // 创建彩色表面网格
+    aiMesh* coloredMesh = m_surfaceAnalyzer.createColoredSurfaceMesh(m_scene, surfaces);
+    
+    // TODO: 显示彩色表面网格
+    // 这里需要将coloredMesh转换为您的渲染系统可用的格式
+    
+    // 保存当前网格以便清理
+    m_coloredSurfaceMesh = coloredMesh;
+    
+    // 刷新显示
+    Refresh();
 }

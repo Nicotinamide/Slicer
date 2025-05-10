@@ -7,97 +7,64 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# 添加构建选项，控制是否构建GUI版本
+option(BUILD_WITH_GUI "Build with graphical user interface" OFF)
+# 添加构建选项，控制是否构建测试程序
+option(BUILD_WITH_TESTS "Build test programs" ON)
+
 # 在项目定义后添加
 if(MSVC)
     add_compile_options(/utf-8)
+    add_compile_definitions(_UNICODE UNICODE)
+    if(BUILD_WITH_GUI)
+        add_compile_definitions(WXUSINGDLL)
+        add_compile_definitions(__WXMSW__)
+    endif()
 endif()
 
-# --- 查找 Boost ---
-find_package(Boost REQUIRED
-    COMPONENTS system filesystem thread date_time regex # 根据你的需求
-)
-
-# --- 查找 CGAL ---
-find_package(CGAL REQUIRED)
-
-# --- 查找 wxWidgets ---
-find_package(wxWidgets REQUIRED
-    COMPONENTS core base gl # 添加 gl 组件
-    # OPTIONAL_COMPONENTS net html # 其他可选组件
-)
-
-# --- 查找 Assimp ---
-# vcpkg 通常会提供一个 CMake 配置文件 (assimp-config.cmake 或 assimpConfig.cmake)，
-# 所以使用 CONFIG 模式通常是最佳选择。
-find_package(assimp CONFIG REQUIRED) # Assimp 官方推荐小写包名
-
-# 添加 OpenGL 支持
-find_package(OpenGL REQUIRED)
-
-# 查找 GLEW
-find_package(GLEW REQUIRED)
-
-# --- 查找 GLM 数学库 ---
-find_package(glm CONFIG REQUIRED)
-message(STATUS "GLM found")
-
-
-# --- 添加可执行文件 ---
-add_executable(MySlicer
-    # main.cpp # 如果你决定不再使用根目录的main.cpp作为入口
-    src/gui_main.cpp          # 包含 wxWidgets 的 MyApp 和 MyFrame 定义
-    src/slicer_core.cpp       # 核心非GUI逻辑
-    src/model_loader.cpp      # 包含 Assimp 加载逻辑
-    src/model_viewer.cpp      # 添加新文件
-)
-
-set_target_properties(MySlicer PROPERTIES
-    WIN32_EXECUTABLE FALSE)  # FALSE = 显示控制台窗口
-
-# --- 链接库 ---
-if(Boost_FOUND)
-    message(STATUS "Boost found. Version: ${Boost_VERSION_STRING}")
-    target_link_libraries(MySlicer PRIVATE
-        Boost::system
-        Boost::filesystem
-        Boost::thread
-        Boost::date_time
-        Boost::regex
+# --- 构建测试程序 ---
+if(BUILD_WITH_TESTS)
+    # 创建模型读取器测试程序
+    add_executable(ModelReaderTest
+        model_reader_test.cpp
+        src/model3d.cpp
+        src/model_io.cpp
+        src/mesh_processor.cpp
     )
+
+    # 设置输出目录
+    set_target_properties(ModelReaderTest PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+
+    # 添加包含目录
+    target_include_directories(ModelReaderTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+
+    # 添加测试数据复制命令
+    add_custom_command(TARGET ModelReaderTest POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/test_models"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_BINARY_DIR}/bin/Release/test_models"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/test_models/cube.stl"
+            "${CMAKE_BINARY_DIR}/bin/test_models/"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_SOURCE_DIR}/test_models/cube.stl"
+            "${CMAKE_BINARY_DIR}/bin/Release/test_models/"
+    )
+
+    # 创建向量测试程序
+    add_executable(VectorTest
+        vector_test.cpp
+    )
+
+    # 设置输出目录
+    set_target_properties(VectorTest PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+    )
+
+    # 添加包含目录
+    target_include_directories(VectorTest PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+
+    message(STATUS "Test programs will be built")
 endif()
-
-if(CGAL_FOUND)
-    message(STATUS "CGAL found. Version: ${CGAL_VERSION_STRING}")
-    target_link_libraries(MySlicer PRIVATE CGAL::CGAL)
-endif()
-
-if(wxWidgets_FOUND)
-    message(STATUS "wxWidgets found. Version: ${wxWidgets_VERSION_STRING}")
-    message(STATUS "wxWidgets_INCLUDE_DIRS: ${wxWidgets_INCLUDE_DIRS}")
-    message(STATUS "wxWidgets_LIBRARIES: ${wxWidgets_LIBRARIES}") # 留意这条命令在CMake输出中的实际内容
-    message(STATUS "wxWidgets_DEFINITIONS: ${wxWidgets_DEFINITIONS}")
-
-    target_include_directories(MySlicer PRIVATE ${wxWidgets_INCLUDE_DIRS})
-    target_compile_definitions(MySlicer PRIVATE ${wxWidgets_DEFINITIONS})
-    target_link_libraries(MySlicer PRIVATE ${wxWidgets_LIBRARIES})
-else()
-    message(FATAL_ERROR "wxWidgets was not found.")
-endif()
-
-if(assimp_FOUND) # 注意 find_package(assimp ...) 会设置 assimp_FOUND (小写)
-    message(STATUS "Assimp found. Version: ${assimp_VERSION}") # 通常版本变量是 <PackageName>_VERSION
-    # Assimp 通常提供一个导入目标 assimp::assimp
-    target_link_libraries(MySlicer PRIVATE assimp::assimp)
-endif()
-
-# 在链接库部分添加 OpenGL
-target_link_libraries(MySlicer PRIVATE OpenGL::GL)
-
-# 链接 GLEW
-target_link_libraries(MySlicer PRIVATE GLEW::GLEW)
-
-# 链接 glm:
-target_link_libraries(MySlicer PRIVATE glm::glm)
-
-# 确保你的源文件能找到 src/ 目录下的头文件
-target_include_directories(MySlicer PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")

@@ -15,6 +15,8 @@
 #include <glm/gtc/type_ptr.hpp> // 用于 glm::make_mat4
 #include <glm/gtc/matrix_transform.hpp> // 用于 glm::transpose (虽然我们可能直接构造)
 
+#include "surface_analyzer.h"
+
 
 // 模型网格数据
 struct ModelMesh {
@@ -32,6 +34,17 @@ public:
     
     // 从 Assimp 加载模型数据
     bool loadModel(const aiScene* scene);
+
+    // New methods for surface analysis
+    void analyzeTopSurface();
+    void showTopSurfaceOnly(bool show);
+    //void exportTopSurface(const std::string& filename);
+    bool exportTopSurface(const std::string& filename);
+
+    void analyzeSurfaces(float angleThreshold);
+
+    void analyzeConnectedSurfaces(float angleThreshold);
+
     
 private:
     wxGLContext* m_context;
@@ -41,6 +54,10 @@ private:
     float m_rotationX = 0.0f;
     float m_rotationY = 0.0f;
     float m_scale = 1.0f;
+
+    // 添加平移成员变量
+    float m_translateX = 0.0f;
+    float m_translateY = 0.0f;
     
     // 处理事件
     void OnPaint(wxPaintEvent& event);
@@ -59,4 +76,12 @@ private:
     float calculateModelRadius();
     
     wxDECLARE_EVENT_TABLE();
+
+    // Add these members
+    SurfaceAnalyzer m_surfaceAnalyzer;
+    const aiScene* m_scene = nullptr;  // Store the loaded scene
+    const aiMesh* m_topSurfaceMesh = nullptr;
+    aiMesh* m_coloredSurfaceMesh = nullptr; // 新增：用于存储彩色表面网格
+    bool m_showTopSurfaceOnly = false;
+    bool m_showColoredSurfaces = false; // 新增：控制是否显示彩色表面
 };

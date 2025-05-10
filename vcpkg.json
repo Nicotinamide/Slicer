@@ -1,0 +1,11 @@
+{
+  "name": "slicer",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "assimp",
+    "glm",
+    "boost",
+    "wxwidgets",
+    "CGAL"
+  ]
+}

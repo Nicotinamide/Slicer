@@ -1,56 +1,24 @@
 // src/gui_main.cpp
-#include <wx/wx.h>
-#include <wx/filedlg.h> // 包含文件对话框头文件
-#include "model_loader.h" // 包含你的模型加载函数声明
-#include "model_viewer.h" // 添加 ModelViewer 头文件
-#include <iostream> // 添加必要头文件
-
-// --- wxWidgets Application Class ---
-class MyApp : public wxApp
-{
-public:
-    virtual bool OnInit() override;
-};
-
-// --- wxWidgets Frame Class (主窗口) ---
-class MyFrame : public wxFrame
-{
-public:
-    MyFrame(const wxString& title);
-
-private:
-    // 事件处理函数
-    void OnExit(wxCommandEvent& event);
-    void OnAbout(wxCommandEvent& event);
-    void OnOpenModel(wxCommandEvent& event);
-
-    // 添加模型查看器
-    ModelViewer* m_modelViewer;
-
-    wxDECLARE_EVENT_TABLE();
-};
-
-// --- 定义新的菜单项 ID ---
-enum
-{
-    ID_OpenModel = wxID_HIGHEST + 1 // 自定义菜单项ID
-    // 你可以继续添加更多自定义ID
-};
+#include "gui_main.h"
 
 // --- 事件表定义 ---
 wxBEGIN_EVENT_TABLE(MyFrame, wxFrame)
     EVT_MENU(wxID_EXIT, MyFrame::OnExit)
     EVT_MENU(wxID_ABOUT, MyFrame::OnAbout)
-    EVT_MENU(ID_OpenModel, MyFrame::OnOpenModel) // 绑定新的菜单事件
+    EVT_MENU(ID_OpenModel, MyFrame::OnOpenModel)
+    EVT_BUTTON(ID_AnalyzeTopSurface, MyFrame::OnAnalyzeTopSurface)
+    EVT_TOGGLEBUTTON(ID_ShowTopSurfaceOnly, MyFrame::OnToggleTopSurface)
+    EVT_BUTTON(ID_ExportTopSurface, MyFrame::OnExportTopSurface)
 wxEND_EVENT_TABLE()
-
-// wxIMPLEMENT_APP(MyApp); // 注释掉这一行
 
 // --- MyApp 方法实现 ---
 bool MyApp::OnInit()
 {
     if (!wxApp::OnInit())
         return false;
+
+    // 设置字符编码
+    wxSetlocale(LC_ALL, "zh_CN.UTF-8");
 
     MyFrame *frame = new MyFrame("My Slicer wxWidgets GUI");
     frame->Show(true);
@@ -63,7 +31,7 @@ MyFrame::MyFrame(const wxString& title)
 {
     // --- 创建菜单栏 ---
     wxMenu *menuFile = new wxMenu;
-    menuFile->Append(ID_OpenModel, "&Open Model...\tCtrl-O", "Open a 3D model file"); // 添加“打开模型”菜单项
+    menuFile->Append(ID_OpenModel, "&Open Model...\tCtrl-O", "Open a 3D model file");
     menuFile->AppendSeparator();
     menuFile->Append(wxID_EXIT);
 
@@ -80,18 +48,53 @@ MyFrame::MyFrame(const wxString& title)
     CreateStatusBar();
     SetStatusText("Welcome to My Slicer!");
 
-    // --- 创建主面板和布局 ---
-    wxPanel *panel = new wxPanel(this, wxID_ANY);
-    wxBoxSizer *mainSizer = new wxBoxSizer(wxVERTICAL);
+    // --- 创建主布局 ---
+    wxBoxSizer *mainSizer = new wxBoxSizer(wxHORIZONTAL);
 
-    // 创建模型查看器
-    m_modelViewer = new ModelViewer(panel);
+    // 创建模型查看器（占左侧大部分区域）
+    m_modelViewer = new ModelViewer(this);
+    mainSizer->Add(m_modelViewer, 4, wxEXPAND | wxALL, 5);
 
-    // 添加到布局
-    mainSizer->Add(m_modelViewer, 1, wxEXPAND | wxALL, 5);
+    // 创建控制面板（右侧）
+    m_controlPanel = new wxPanel(this);
+    wxBoxSizer *controlSizer = new wxBoxSizer(wxVERTICAL);
 
-    panel->SetSizer(mainSizer);
+    // 添加"分析顶面"按钮
+    m_analyzeButton = new wxButton(m_controlPanel, ID_AnalyzeTopSurface, wxString::FromUTF8("分析顶面"));
+    m_analyzeButton->Enable(false); // 初始禁用，需要先加载模型
+    controlSizer->Add(m_analyzeButton, 0, wxEXPAND | wxALL, 5);
+
+    // 添加"仅显示顶面"切换按钮 - 使用正确的类型
+    m_showTopSurfaceButton = new wxToggleButton(m_controlPanel, ID_ShowTopSurfaceOnly, wxString::FromUTF8("仅显示顶面"));
+    m_showTopSurfaceButton->Enable(false); // 初始禁用，需要先分析顶面
+    controlSizer->Add(m_showTopSurfaceButton, 0, wxEXPAND | wxALL, 5);
+
+    // 添加"导出顶面"按钮
+    m_exportButton = new wxButton(m_controlPanel, ID_ExportTopSurface, wxString::FromUTF8("导出顶面"));
+    m_exportButton->Enable(false); // 初始禁用，需要先分析顶面
+    controlSizer->Add(m_exportButton, 0, wxEXPAND | wxALL, 5);
+
+    // 添加"提取连续表面"按钮
+    m_extractSurfacesButton = new wxButton(m_controlPanel, ID_ExtractSurfaces, wxString::FromUTF8("提取连续表面"));
+    controlSizer->Add(m_extractSurfacesButton, 0, wxEXPAND | wxALL, 5);
+
+    // 添加"面分离"按钮
+    m_separateSurfacesButton = new wxButton(m_controlPanel, ID_SeparateSurfaces, wxString::FromUTF8("面分离"));
+    controlSizer->Add(m_separateSurfacesButton, 0, wxEXPAND | wxALL, 5);
+
+    m_controlPanel->SetSizer(controlSizer);
+    mainSizer->Add(m_controlPanel, 1, wxEXPAND | wxALL, 5);
+
+
+
+    SetSizer(mainSizer);
     Layout();
+
+    // 设置支持中文的字体
+    wxFont font(12, wxFONTFAMILY_SWISS, wxFONTSTYLE_NORMAL, wxFONTWEIGHT_NORMAL, false, "SimSun");
+    m_analyzeButton->SetFont(font);
+    m_showTopSurfaceButton->SetFont(font);
+    m_exportButton->SetFont(font);
 }
 
 // --- MyFrame 事件处理函数实现 ---
@@ -102,61 +105,117 @@ void MyFrame::OnExit(wxCommandEvent& event)
 
 void MyFrame::OnAbout(wxCommandEvent& event)
 {
-    wxMessageBox(wxString::Format("This is a wxWidgets Slicer Application example.\n"
-                                  "Using wxWidgets version: %s\n"
-                                  "Current time: %s",
-                                  wxVERSION_STRING, wxDateTime::Now().Format()),
-                 "About My Slicer", wxOK | wxICON_INFORMATION);
+    wxMessageBox(wxString::FromUTF8("这是一个 wxWidgets 切片机应用程序示例。\n") +
+                wxString::FromUTF8("使用 wxWidgets 版本: ") + wxVERSION_STRING + wxString::FromUTF8("\n") +
+                wxString::FromUTF8("当前时间: ") + wxDateTime::Now().Format(),
+                wxString::FromUTF8("关于切片机"), wxOK | wxICON_INFORMATION);
 }
 
 void MyFrame::OnOpenModel(wxCommandEvent& event)
 {
     // 定义文件对话框支持的文件类型通配符
-    // 你可以根据 Assimp 支持的和你希望用户加载的格式来调整这个列表
     wxString wildcard =
-        "All supported formats (*.3ds;*.fbx;*.dae;*.obj;*.ply;*.stl;*.gltf;*.glb)|*.3ds;*.fbx;*.dae;*.obj;*.ply;*.stl;*.gltf;*.glb|"
-        "STL Files (*.stl)|*.stl|"
-        "OBJ Files (*.obj)|*.obj|"
-        "FBX Files (*.fbx)|*.fbx|"
-        "Collada Files (*.dae)|*.dae|"
-        "GLTF/GLB Files (*.gltf;*.glb)|*.gltf;*.glb|"
-        "PLY Files (*.ply)|*.ply|"
-        "All files (*.*)|*.*";
+        wxString::FromUTF8("所有支持的格式 (*.3ds;*.fbx;*.dae;*.obj;*.ply;*.stl;*.gltf;*.glb)|*.3ds;*.fbx;*.dae;*.obj;*.ply;*.stl;*.gltf;*.glb|"
+        "STL 文件 (*.stl)|*.stl|"
+        "OBJ 文件 (*.obj)|*.obj|"
+        "FBX 文件 (*.fbx)|*.fbx|"
+        "Collada 文件 (*.dae)|*.dae|"
+        "GLTF/GLB 文件 (*.gltf;*.glb)|*.gltf;*.glb|"
+        "PLY 文件 (*.ply)|*.ply|"
+        "IFC 文件 (*.ifc)|*.ifc|"
+        "所有文件 (*.*)|*.*");
 
-    wxFileDialog openFileDialog(this, _("Open 3D Model file"), "", "",
+    wxFileDialog openFileDialog(this, wxString::FromUTF8("打开 3D 模型文件"), "", "",
                                wildcard, wxFD_OPEN | wxFD_FILE_MUST_EXIST);
 
     if (openFileDialog.ShowModal() == wxID_CANCEL)
     {
-        SetStatusText("Model loading cancelled.");
-        return; // 用户取消了对话框
+        SetStatusText(wxString::FromUTF8("模型加载已取消。"));
+        return;
     }
 
-    // 获取用户选择的文件路径
     wxString filePath = openFileDialog.GetPath();
-    std::string stdFilePath = std::string(filePath.ToUTF8()); // 转换为 std::string
+    std::string stdFilePath = std::string(filePath.ToUTF8());
 
-    SetStatusText(wxString::Format("Loading model: %s", filePath));
+    SetStatusText(wxString::FromUTF8("正在加载模型: ") + filePath);
 
-    // 调用 Assimp 加载函数
     const aiScene* scene = loadModelWithAssimp(stdFilePath);
     if (scene)
     {
-        // 加载成功
-        wxMessageBox(wxString::Format("Successfully loaded model:\n%s", filePath),
-                     "Model Loaded", wxOK | wxICON_INFORMATION);
-        SetStatusText(wxString::Format("Model loaded: %s", filePath));
+        wxMessageBox(wxString::FromUTF8("成功加载模型:\n") + filePath,
+                     wxString::FromUTF8("模型已加载"), wxOK | wxICON_INFORMATION);
+        SetStatusText(wxString::FromUTF8("模型已加载: ") + filePath);
 
-        // 将模型数据传递给模型查看器
         m_modelViewer->loadModel(scene);
+        
+        // 启用分析顶面按钮
+        m_analyzeButton->Enable(true);
+        
+        // 禁用顶面相关按钮
+        m_showTopSurfaceButton->Enable(false);
+        m_showTopSurfaceButton->SetValue(false);
+        m_exportButton->Enable(false);
+        m_topSurfaceAnalyzed = false;
     }
     else
     {
-        // 加载失败 (loadModelWithAssimp 函数内部应该已经打印了更详细的 Assimp错误信息到控制台)
-        wxMessageBox(wxString::Format("Failed to load model:\n%s\n\nSee console for Assimp error details.", filePath),
-                     "Model Load Error", wxOK | wxICON_ERROR);
-        SetStatusText(wxString::Format("Failed to load model: %s", filePath));
+        wxMessageBox(wxString::FromUTF8("加载模型失败:\n") + filePath + wxString::FromUTF8("\n\n请查看控制台获取 Assimp 错误详情。"),
+                     wxString::FromUTF8("模型加载错误"), wxOK | wxICON_ERROR);
+        SetStatusText(wxString::FromUTF8("加载模型失败: ") + filePath);
     }
+}
+
+// 添加未实现的顶面分析功能函数
+void MyFrame::OnAnalyzeTopSurface(wxCommandEvent& event)
+{
+    // 显示进度信息
+    wxBusyCursor wait;
+    wxBusyInfo info(wxString::FromUTF8("正在分析顶面，请稍候..."), this);
+    
+    // 执行顶面分析
+    m_modelViewer->analyzeTopSurface();
+    
+    // 标记分析完成
+    m_topSurfaceAnalyzed = true;
+    
+    // 启用顶面相关按钮
+    m_showTopSurfaceButton->Enable(true);
+    m_exportButton->Enable(true);
+    
+    SetStatusText(wxString::FromUTF8("顶面分析完成"));
+}
+
+void MyFrame::OnToggleTopSurface(wxCommandEvent& event)
+{
+    // 根据按钮状态切换显示
+    bool showTopSurfaceOnly = m_showTopSurfaceButton->GetValue();
+    m_modelViewer->showTopSurfaceOnly(showTopSurfaceOnly);
+    
+    SetStatusText(showTopSurfaceOnly ? wxString::FromUTF8("仅显示顶面") : wxString::FromUTF8("显示完整模型"));
+}
+
+void MyFrame::OnExportTopSurface(wxCommandEvent& event)
+{
+    wxFileDialog saveFileDialog(this, wxString::FromUTF8("导出顶面"), "", "",
+        wxString::FromUTF8("STL文件 (*.stl)|*.stl"), wxFD_SAVE | wxFD_OVERWRITE_PROMPT);
+        
+    if (saveFileDialog.ShowModal() == wxID_CANCEL)
+        return;
+        
+    // 导出顶面
+    std::string stdFilePath = std::string(saveFileDialog.GetPath().ToUTF8());
+    if (m_modelViewer->exportTopSurface(stdFilePath)) {
+        wxMessageBox(wxString::FromUTF8("顶面已成功导出"), wxString::FromUTF8("导出成功"), wxOK | wxICON_INFORMATION);
+        SetStatusText(wxString::FromUTF8("顶面导出成功: ") + saveFileDialog.GetPath());
+    } else {
+        wxMessageBox(wxString::FromUTF8("导出顶面失败"), wxString::FromUTF8("导出错误"), wxOK | wxICON_ERROR);
+        SetStatusText(wxString::FromUTF8("顶面导出失败"));
+    }
+}
+
+void MyFrame::OnExtractSurfaces(wxCommandEvent& event) {
+    m_modelViewer->analyzeSurfaces(10.0f); // 10度角度阈值
+    SetStatusText(wxString::FromUTF8("正在提取表面..."));
 }
 
 // 在文件末尾添加标准 main 函数
